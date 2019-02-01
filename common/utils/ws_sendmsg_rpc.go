@@ -8,7 +8,6 @@
 package utils
 
 import (
-	"fmt"
 	"net/rpc"
 	"net/rpc/jsonrpc"
 
@@ -23,6 +22,7 @@ func InitWSClient() {
 	var err error
 	// host := property.GetProperty("ws::host")
 	var host = "localhost:8090"
+	logs.Debug("连接地址", host)
 	wsrpc, err = jsonrpc.Dial("tcp", host)
 	logs.Debug("客户端初始化", wsrpc)
 	if err != nil {
@@ -40,7 +40,7 @@ func WSSendMsg(message WSMessage) int {
 	ret := 0
 	//调用远程方法
 	//注意第三个参数是指针类型
-	fmt.Println("wswendmsg:", wsrpc, message.Room, message.Senderid, message.Msg, message.Type)
+	// fmt.Println("wswendmsg:", wsrpc, message.Room, message.Senderid, message.Msg, message.Type)
 	// WSMessage{Roomid: message.Roomid, Senderid: message.Senderid, Type: message.Type, Msg: message.Msg, ReciverId: message.ReciverId}
 	err2 := wsrpc.Call("WechatWS.WSSendMsg", message, &ret)
 	if err2 != nil {

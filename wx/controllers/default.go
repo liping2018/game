@@ -5,6 +5,8 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/astaxie/beego/logs"
+
 	"game/common/utils"
 
 	"github.com/astaxie/beego"
@@ -22,6 +24,7 @@ var upgrader = websocket.Upgrader{
 }
 
 func (c *MainController) Get() {
+	logs.Debug("第一步")
 	var player utils.Player
 	ws, err := upgrader.Upgrade(c.Ctx.ResponseWriter, c.Ctx.Request, nil)
 	if err != nil {

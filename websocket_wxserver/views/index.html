@@ -97,13 +97,13 @@
     var host = "ws://127.0.0.1:8080?userid=" + user
     var websocket = new WebSocket(host)
     websocket.onopen = function (e) {
-      $("#textarea").append("进入房间,等待管理员开始此次会话\n")
+      $("#textarea").append("\n进入房间,等待管理员开始此次会话\n")
     }
     websocket.onmessage = function (e) {
       HandleMessage($.parseJSON(e.data))
     }
     websocket.onclose = function () {
-      $("#textarea").append("会话结束\n")
+      $("#textarea").append("\n会话结束\n")
     }
 
     function HandleMessage(data) {
@@ -113,15 +113,17 @@
           roomid = data.room.roomid;
           if (msg.isadmin == 1 && user == data.reciverid) {
             $("#start").removeAttr("disabled")
+            $("#textarea").append("\n欢迎:" + data.reciverid + "进入房间\n")
             alert("你已经成为房主，点击开始会话开始此次会话")
+          }else{
+            $("#textarea").append("\n欢迎:" + data.sernderid + "进入房间\n")
           }
-          $("#textarea").append("欢迎:" + data.reciverid + "进入房间\n")
           Online(data.room.player)
           var textarea = document.getElementById('textarea');
           textarea.scrollTop = textarea.scrollHeight
           break;
         case "exit":
-          $("#textarea").append(data.senderid + " 退出房间\n")
+          $("#textarea").append("\n" + data.senderid + " 退出房间\n")
           if (msg.isadmin != undefined && data.reciverid != undefined) {
             if (msg.isadmin == 1 && user == data.reciverid) {
               if (start == false) {
@@ -135,12 +137,12 @@
           textarea.scrollTop = textarea.scrollHeight
           break;
         case "message":
-          $("#textarea").append(data.senderid + " 说:" + data.msg + "\n");
+          $("#textarea").append("\n" + data.senderid + " 说:" + data.msg + "\n");
           var textarea = document.getElementById('textarea');
           textarea.scrollTop = textarea.scrollHeight
           break;
         case "start":
-          $("#textarea").append("开始会话，大家可以说话啦!!!\n")
+          $("#textarea").append("\n开始会话，大家可以说话啦!!!\n")
           start = true
           $("#send").removeAttr("disabled")
           var textarea = document.getElementById('textarea');
@@ -174,7 +176,7 @@
           url: "/send",
           method: "post",
           data: {
-            userid: user,
+            senderid: user,
             roomid: roomid,
             cmd: "start",
             msg: msg

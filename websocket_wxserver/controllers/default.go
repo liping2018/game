@@ -43,21 +43,29 @@ func (this *MainController) JsonOutput(rspdata interface{}) {
 
 //玩家发送消息
 func (c *MainController) Message() {
+
 	var rspdata RspData
-	rspdata.Retcode = RSP_FAIL
-	roomid := c.GetString("roomid")
-	userid, err := c.GetUint64("userid")
-	cmd := c.GetString("cmd")
-	rspdata.Cmd = cmd
-	if err != nil {
-		logs.Error(err)
-	} else {
-		msg := c.GetString("msg")
-		var room utils.Room
-		room.Roomid = roomid
-		utils.WSSendMsg(utils.WSMessage{Room: &room, Senderid: userid, Type: utils.MESSAGE, Msg: msg})
-		rspdata.Retcode = RSP_SUCCESS
-	}
+	// rspdata.Retcode = RSP_FAIL
+	// // var reciverid uint64
+	// // roomid := c.GetString("roomid")
+	// // reciverid, err := c.GetUint64("reciverid")
+	// if err != nil {
+	// 	reciverid = 0
+	// }
+	// cmd := c.GetString("cmd")
+	// rspdata.Cmd = cmd
+	// // senderid, err := c.GetUint64("senderid")
+	// if err != nil {
+	// 	logs.Error(err)
+	// } else {
+	// 	// msg := c.GetString("msg")
+	// 	var room utils.Room
+	// 	room.Roomid = roomid
+	// 	// ret := utils.WSSendMsg(utils.WSMessage{Room: &room, Senderid: senderid, ReciverId: reciverid, Type: utils.MESSAGE, Msg: msg})
+	// 	// if ret == 1 {
+	// 	// 	rspdata.Retcode = RSP_SUCCESS
+	// 	// }
+	// }
 	c.JsonOutput(rspdata)
 }
 
@@ -84,10 +92,14 @@ func (c *MainController) PlayerExit() {
 func (c *MainController) Start() {
 
 	var rspdata RspData
+
 	roomid := c.GetString("roomid")
 	cmd := c.GetString("cmd")
 	rspdata.Cmd = cmd
-	rspdata.Retcode = RSP_SUCCESS
-	utils.StartGame(roomid)
+	rspdata.Retcode = RSP_FAIL
+	ret := utils.StartGame(roomid)
+	if ret == 1 {
+		rspdata.Retcode = RSP_SUCCESS
+	}
 	c.JsonOutput(rspdata)
 }
