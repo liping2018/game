@@ -30,7 +30,7 @@ var roomSize int
 
 var sfroom *SafeRoom
 var sfpool *SafePool
-
+var ws *WechatWS
 var rwLock sync.RWMutex
 
 func InitWS() {
@@ -38,6 +38,7 @@ func InitWS() {
 	go handleMessages()
 	go initWSRpc()
 	go handlePlayer()
+
 	var err error
 	sfroom = newSafeRoom()
 	sfpool = newSafePool()
@@ -48,8 +49,6 @@ func InitWS() {
 		logs.Debug(err)
 	}
 }
-
-var ws *WechatWS
 
 func initWSRpc() {
 	ws = new(WechatWS)
@@ -163,19 +162,20 @@ func handlePlayer() {
 //玩家加入处理
 func playerEnter(player *Player) {
 
-	rwLock.Lock()
-	defer rwLock.Unlock()
+	// rwLock.Lock()
+	// defer rwLock.Unlock()
 
 	logs.Debug("第四步")
 	logs.Debug("寻找可加入房间", player.Userid)
 	var roomid string
-	var ret int
+	// var ret int
 
 	//查找可加入房间
 	if roomid = FindAvailableRoom(); roomid != "" {
 		logs.Debug("找到了可加入的", roomid)
 		err := enterRoom(player, roomid)
-		if err == nil {
+		if err != nil {
+			logs.Debug("加入房间发生了错误", err)
 			sfpool.WriteSafePool(player)
 		}
 		// ws.WSSendMsg(WSMessage{Room: room[roomid], Type: PALYER_ENTER, Msg: Player{IsAdmin: 0}, Senderid: player.Userid, ReciverId: 0}, &ret)
@@ -187,15 +187,22 @@ func playerEnter(player *Player) {
 		if len(players) > 2 {
 			logs.Debug("创建新房间")
 			roomid = createNewRoom()
-			p := make(map[uint64]*Player)
-			var room Room
-			player.IsAdmin = 1
-			room.Player = p
-			player.Roomid = roomid
-			room.Player[player.Userid] = player
-			room.Roomid = roomid
-			room.Status = 1
+			// p := make(map[uint64]*Player)
+			// var room Room
+			// player.IsAdmin = 1
+			// room.Player = p
+			// player.Roomid = roomid
+			// room.Player[player.Userid] = player
+			// room.Roomid = roomid
+			// room.Status = 1
+			//创建房间
+			sfroom.WriteSafeRoom(roomid)
 			for k, v := range players {
+				//第一个为房主
+				if k == 0 {
+					v.IsAdmin = 1
+
+				}
 				if err := enterRoom(v, roomid); err == nil {
 					logs.Debug("加入房间", k, v)
 					sfpool.DelSafePool(k)
@@ -203,15 +210,15 @@ func playerEnter(player *Player) {
 					logs.Error("加入房间发生错误", err)
 				}
 			}
-			rooms := sfroom.ReadAllSafeRoom()
-			rooms[roomid] = &room
+			// rooms := sfroom.ReadAllSafeRoom()
+			// rooms[roomid] = &room
 			// ws.WSSendMsg(WSMessage{Room: room[roomid], ReciverId: player.Userid, Type: PALYER_ENTER, Msg: Player{IsAdmin: 1}}, &ret)
-			if ret != 1 {
-				logs.Debug("玩家加入广播消息失败")
-			}
+			// if ret != 1 {
+			// 	logs.Debug("玩家加入广播消息失败")
+			// }
 		}
 	}
-	logs.Debug("socket created ")
+	logs.Debug("玩家池中的玩家", sfpool.ReadAllSafePool())
 }
 
 //寻找可加入的房间
@@ -242,19 +249,18 @@ func createNewRoom() string {
 
 //玩家加入房间
 func enterRoom(player *Player, roomid string) error {
-	logs.Debug("玩家加入房间")
-	rwLock.Lock()
-	defer rwLock.Unlock()
+	logs.Debug("玩家加入房间", roomid)
 	room := sfroom.ReadOneSafeRoom(roomid)
+	logs.Debug("房间信息", room)
 	if room != nil {
 		logs.Debug("房间存在奥")
 		if len(room.Player) <= roomSize {
 			room.Player[player.Userid] = player
 			if len(room.Player) >= roomSize {
-				logs.Debug("房间已经满了", "已经不可以再加入了")
+				logs.Debug("房间已经满了", "已经不可以再加入了", room.Player)
 				room.Status = 0
-				player.Roomid = roomid
 			}
+			player.Roomid = roomid
 			return nil
 		}
 	}
@@ -283,46 +289,48 @@ func WSAdd(player *Player) {
 //移除玩家
 func RemovePalyer(roomid string, userid uint64) {
 
-	rwLock.Lock()
-	room := sfroom.ReadOneSafeRoom(roomid)
-	logs.Debug("这个房间有人退出", room, roomid)
-	// var ret int
-	if room != nil {
-		if room.Status == 1 { //游戏未开始，玩家退出或掉线
-			player := room.Player[userid]
-			if player != nil {
-				if player.Conn != nil {
-					player.Conn.Close()
-					logs.Debug("断开连接")
-				}
-				logs.Debug("这个人退出房间", userid)
-				delete(room.Player, userid)
-				//房主退出，移交房主权限
-				if player.IsAdmin == 1 {
-					logs.Debug("房主退出")
-					//房间为空
-					if len(room.Player) == 0 {
-						logs.Debug("房间已经空了，移除")
-						//移除房间
-						removeRoom(roomid)
-					} else {
-						for _, p := range room.Player {
-							p.IsAdmin = 1
-							logs.Debug("这个人成了房主", p.Userid)
-							break
+	if roomid != "" { //房间移除
+		room := sfroom.ReadOneSafeRoom(roomid)
+		logs.Debug("这个房间有人退出", room, roomid)
+		// var ret int
+		if room != nil {
+			if room.Status == 1 { //游戏未开始，玩家退出或掉线
+				player := room.Player[userid]
+				if player != nil {
+					if player.Conn != nil {
+						player.Conn.Close()
+						logs.Debug("断开连接")
+					}
+					logs.Debug("这个人退出房间", userid)
+					delete(room.Player, userid)
+					//房主退出，移交房主权限
+					if player.IsAdmin == 1 {
+						logs.Debug("房主退出")
+						//房间为空
+						if len(room.Player) == 0 {
+							logs.Debug("房间已经空了，移除")
+							//移除房间
+							removeRoom(roomid)
+						} else {
+							for _, p := range room.Player {
+								p.IsAdmin = 1
+								logs.Debug("这个人成了房主", p.Userid)
+								break
+							}
 						}
 					}
 				}
+			} else if room.Status == 0 { //游戏已开始，玩家掉线或退出
+				player := room.Player[userid]
+				if player.Conn != nil {
+					player.Conn.Close()
+				}
+				player.Status = 0
 			}
-		} else if room.Status == 0 { //游戏已开始，玩家掉线或退出
-			player := room.Player[userid]
-			if player.Conn != nil {
-				player.Conn.Close()
-			}
-			player.Status = 0
 		}
+	} else {
+
 	}
-	rwLock.Unlock()
 	logs.Debug(userid, "remove ")
 }
 

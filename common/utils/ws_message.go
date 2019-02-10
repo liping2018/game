@@ -98,6 +98,7 @@ func (sf *SafeRoom) WriteSafeRoom(roomid string) {
 	defer sf.RMutex.Unlock()
 	room := new(Room)
 	room.Roomid = roomid
+	room.Player = make(map[uint64]*Player)
 	room.Status = 1
 	sf.SRoom[roomid] = room
 }
