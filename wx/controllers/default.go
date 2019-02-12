@@ -1,9 +1,11 @@
 package controllers
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/astaxie/beego/logs"
 
@@ -31,21 +33,33 @@ func (c *MainController) Get() {
 		log.Fatal(err)
 	}
 	userid, err := c.GetUint64("userid")
-	player.Userid = userid
-	player.Conn = ws
-	utils.WSAdd(&player)
+	data := c.GetString("data")
+	err = c.ParseHttpReq(data, player)
+	if err != nil {
+		player.Userid = userid
+		player.Conn = ws
+		player.WaitTime = time.Now().Unix()
+		utils.WSAdd(&player)
+		for {
+			_, p, err := ws.ReadMessage()
+			if err != nil {
+				log.Printf("页面可能断开啦 ws.ReadJSON error: %v", err)
+				utils.RemovePalyer(player.Roomid, userid)
+				break
+			} else {
+				fmt.Println("接受到从页面上反馈回来的信息 ", string(p))
 
-	for {
-		_, p, err := ws.ReadMessage()
-
-		if err != nil {
-			log.Printf("页面可能断开啦 ws.ReadJSON error: %v", err)
-			utils.RemovePalyer(player.Roomid, userid)
-			break
-		} else {
-			fmt.Println("接受到从页面上反馈回来的信息 ", string(p))
-
+			}
 		}
 	}
 	c.StopRun()
+}
+
+func (c *MainController) ParseHttpReq(reqdata string, httpReq interface{}) error {
+	err := json.Unmarshal([]byte(reqdata), httpReq)
+	if err != nil {
+		logs.Error(err)
+		return err
+	}
+	return nil
 }

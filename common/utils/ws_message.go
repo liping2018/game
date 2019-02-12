@@ -38,19 +38,25 @@ const (
 
 //玩家结构体
 type Player struct {
-	Userid  uint64          `json:"userid"`  //用户编号
-	Roomid  string          `json:"roomid"`  //房间编号
-	Conn    *websocket.Conn `json:"conn"`    //websocket连接
-	Status  int             `json:"status"`  //玩家状态
-	IsAdmin int             `json:"isadmin"` //玩家身份
+	Userid    uint64          `json:"userid"`     //用户编号
+	Roomid    string          `json:"roomid"`     //房间编号
+	Username  string          `json:"username"`   //玩家昵称
+	Avatarurl string          `json:"avatar_url"` //头像
+	Rank      int64           `json:"rank"`       //玩家分数/等级/段位
+	Conn      *websocket.Conn `json:"conn"`       //websocket连接
+	Status    int             `json:"status"`     //玩家状态
+	IsAdmin   int             `json:"isadmin"`    //玩家身份
+	WaitTime  int64           `json:"waittime"`   //开始匹配的时间
+	Team      int             `json:"team"`       //玩家队伍
 }
 
 //房间结构体
 type Room struct {
 	Roomid string             `json:"roomid"` //房间编号
 	Player map[uint64]*Player `json:"player"` //用户集合
-	Status int                `json:status`   //房间状态
+	Status int                `json:"status"` //房间状态
 	Size   int                `json:"size"`   //房间大小
+	Point  []interface{}      `json:"point"`  //房间结算
 }
 
 //房间

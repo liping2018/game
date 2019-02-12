@@ -8,13 +8,15 @@
 package utils
 
 import (
-	"errors"
 	"game/common/property"
 	"net"
 	"net/rpc"
 	"net/rpc/jsonrpc"
 	"strconv"
 	"sync"
+	"time"
+
+	"github.com/robfig/cron"
 
 	"github.com/astaxie/beego/logs"
 )
@@ -37,7 +39,8 @@ func InitWS() {
 
 	go handleMessages()
 	go initWSRpc()
-	go handlePlayer()
+	// go handlePlayer()
+	go initMatch()
 
 	var err error
 	sfroom = newSafeRoom()
@@ -80,6 +83,17 @@ func initWSRpc() {
 
 }
 
+//定时匹配
+func initMatch() {
+	c := cron.New()
+	//一秒匹配一次
+	c.AddFunc("0/1 * * * * ?", func() {
+		logs.Debug("开始一次匹配")
+		go matchPlayer()
+	})
+	c.Start()
+}
+
 func newSafeRoom() *SafeRoom {
 	sfroom := new(SafeRoom)
 	sfroom.SRoom = make(map[string]*Room)
@@ -96,145 +110,169 @@ func newSafePool() *SafePool {
 func handleMessages() {
 	for {
 		wsm := <-broadcast
-		r := sfroom.ReadAllSafeRoom()
-		room := r[wsm.Roomid]
 
-		if ws != nil {
-			if wsm.Range != 0 { //存在指定的接收者为  单独发送消息
-				// player := r.Player[wsm.ReciverId]
-				// if player != nil {
-				// 	if player.Conn != nil {
-				// 		err := player.Conn.WriteJSON(wsm)
-				// 		if err != nil {
-				// 			logs.Error("client.WriteJSON error: ", err)
-				// 			player.Conn.Close()
-				// 			delete(r.Player, wsm.ReciverId)
-				// 		}
-				// 	} else {
-				// 		delete(r.Player, player.Userid)
-				// 		logs.Error("连接断开了,清除该用户", player.Userid)
-				// 	}
-				// } else {
-				// 	logs.Debug("该用户已经不在房间", wsm.ReciverId)
-				// }
-			} else { //没有指定单独的接收者,则为广播
-				for _, p := range room.Player {
-					if wsm.Userid == p.Userid { //不广播给发送者
-						continue
-					}
-					if p.Conn != nil {
-						err := p.Conn.WriteJSON(wsm)
-						if err != nil {
-							logs.Error("client.WriteJSON error: ", err)
-							p.Conn.Close()
-							p.Status = 0
+		switch wsm.Type {
+
+		case PLAYER_EXIT:
+			break
+		case GAME_START:
+			break
+		case GAME_OVER:
+			gameSettle(wsm) //游戏结算
+			break
+		case MESSAGE:
+
+			switch wsm.Range {
+
+			case All_PLAYER: //广播全部玩家
+				room := sfroom.ReadOneSafeRoom(wsm.Roomid)
+				for _, v := range room.Player {
+					if wsm.Userid != v.Userid && v.Status == 1 {
+						err := v.Conn.WriteJSON(wsm)
+						if err != nil { //玩家掉线
+							logs.Debug("玩家掉线", v.Userid)
+							v.Status = 0
 						}
-
-					} else {
-						p.Status = 0
-						logs.Error("连接断开了", p.Userid)
 					}
 				}
-			}
-		}
-	}
-}
-
-//接收玩家的加入
-func handlePlayer() {
-	for {
-		logs.Debug("第三步")
-		player := <-cpool
-		if player.Conn != nil && player.Status == 1 { //正常玩家
-			playerEnter(player)
-		} else if player.Conn != nil && player.Status == 0 { //断线重连玩家
-			room := sfroom.ReadOneSafeRoom(player.Roomid)
-			if room != nil && room.Player[player.Userid] != nil {
-				room.Player[player.Userid].Status = 1
-				room.Player[player.Userid].Conn = player.Conn
-			} else { //房间已经解散，重新加入玩家池
-				playerEnter(player)
-			}
-		}
-	}
-}
-
-//玩家加入处理
-func playerEnter(player *Player) {
-
-	// rwLock.Lock()
-	// defer rwLock.Unlock()
-
-	logs.Debug("第四步")
-	logs.Debug("寻找可加入房间", player.Userid)
-	var roomid string
-	// var ret int
-
-	//查找可加入房间
-	if roomid = FindAvailableRoom(); roomid != "" {
-		logs.Debug("找到了可加入的", roomid)
-		err := enterRoom(player, roomid)
-		if err != nil {
-			logs.Debug("加入房间发生了错误", err)
-			sfpool.WriteSafePool(player)
-		}
-		// ws.WSSendMsg(WSMessage{Room: room[roomid], Type: PALYER_ENTER, Msg: Player{IsAdmin: 0}, Senderid: player.Userid, ReciverId: 0}, &ret)
-	} else { //创建新房间
-
-		sfpool.WriteSafePool(player)
-		players := sfpool.ReadAllSafePool()
-		logs.Debug("满足条件的话会创建房间")
-		if len(players) > 2 {
-			logs.Debug("创建新房间")
-			roomid = createNewRoom()
-			// p := make(map[uint64]*Player)
-			// var room Room
-			// player.IsAdmin = 1
-			// room.Player = p
-			// player.Roomid = roomid
-			// room.Player[player.Userid] = player
-			// room.Roomid = roomid
-			// room.Status = 1
-			//创建房间
-			sfroom.WriteSafeRoom(roomid)
-			for k, v := range players {
-				//第一个为房主
-				if k == 0 {
-					v.IsAdmin = 1
-
+				break
+			case TEAM_PLAYER: //广播队友玩家
+				room := sfroom.ReadOneSafeRoom(wsm.Roomid)
+				player := room.Player[wsm.Userid]
+				for _, v := range room.Player {
+					if v.Status == 1 && wsm.Userid != v.Userid {
+						if player.Team == v.Team {
+							err := v.Conn.WriteJSON(wsm)
+							if err != nil { //玩家掉线
+								logs.Debug("玩家掉线", v.Userid)
+								v.Status = 0
+							}
+						}
+					}
 				}
-				if err := enterRoom(v, roomid); err == nil {
-					logs.Debug("加入房间", k, v)
-					sfpool.DelSafePool(k)
-				} else {
-					logs.Error("加入房间发生错误", err)
+				break
+			case ONE_PLAYER: //发送给其中一个玩家
+				break
+			default:
+				logs.Debug("消息范围错误")
+			}
+			break
+		default:
+			logs.Debug("消息类型错误")
+
+		}
+	}
+}
+
+//游戏结束结算
+func gameSettle(wsm WSMessage) {
+
+	room := sfroom.ReadOneSafeRoom(wsm.Roomid)
+	room.Point = append(room.Point, wsm.Msg)
+	var count = 0
+	for _, v := range room.Player {
+		if v.Status == 1 {
+			count++
+		}
+	}
+	if len(room.Point) == count {
+		//发送结算消息
+		for _, v := range room.Player {
+			if v.Status == 1 {
+				err := v.Conn.WriteJSON(room.Point)
+				if err != nil {
+					logs.Debug("发送消息失败")
 				}
 			}
-			// rooms := sfroom.ReadAllSafeRoom()
-			// rooms[roomid] = &room
-			// ws.WSSendMsg(WSMessage{Room: room[roomid], ReciverId: player.Userid, Type: PALYER_ENTER, Msg: Player{IsAdmin: 1}}, &ret)
-			// if ret != 1 {
-			// 	logs.Debug("玩家加入广播消息失败")
-			// }
 		}
 	}
-	logs.Debug("玩家池中的玩家", sfpool.ReadAllSafePool())
+	removeRoom(room.Roomid)
 }
 
-//寻找可加入的房间
-func FindAvailableRoom() string {
-	logs.Debug("寻找可以加入的房间")
-	room := sfroom.ReadAllSafeRoom()
-	for roomid, avRoom := range room {
-		if avRoom.Status == 1 {
-			return roomid
+//玩家匹配
+func matchPlayer() {
+	players := sfpool.ReadAllSafePool()
+	logs.Debug("进入匹配", players)
+	gplayers := make(map[int64][]*Player)
+
+	//按rank值分组
+	for _, v := range players {
+		logs.Debug("上一步", v)
+		// logs.Debug("这里报错吗", gplayers[v.Rank].MPool)
+		logs.Debug("这儿呢", gplayers[v.Rank])
+		gplayers[v.Rank] = append(gplayers[v.Rank], v)
+	}
+	logs.Debug("第一步")
+	//找出每个组中匹配时间最长的玩家进行匹配
+	for _, gv := range gplayers {
+		var continueMatch = true
+		for {
+			if !continueMatch {
+				break
+			}
+			var oldest *Player = nil
+			for _, mv := range gv {
+				logs.Debug("玩家信息", mv)
+
+				if oldest == nil {
+					oldest = mv
+				} else if mv.WaitTime < oldest.WaitTime {
+					oldest = mv
+				}
+			}
+			logs.Debug("等待时间最久的", oldest)
+			if oldest == nil {
+				break
+			}
+			now := time.Now().Unix()
+			//按照等待时间扩大匹配范围
+			var waittime int64 = ((now - oldest.WaitTime) / 1000)
+			var min = (oldest.Rank - waittime)
+			if min < 0 {
+				min = 0
+			}
+
+			var max = oldest.Rank + waittime
+			var gplayers2 []*Player
+			logs.Debug("这玩意是不是出错了", gplayers2)
+			for _, gmv := range players {
+
+				if gmv.Rank <= max && gmv.Rank >= min {
+					gplayers2 = append(gplayers2, gmv)
+					//将玩家从匹配池删除
+					sfpool.DelSafePool(gmv.Userid)
+				}
+				//
+				if len(gplayers2) >= roomSize {
+					break
+				}
+			}
+			logs.Debug("房间和匹配认数的大小", len(gplayers2), roomSize)
+			//匹配完成
+			if len(gplayers2) == roomSize {
+				//开房间
+				logs.Debug("匹配成功，创建房间开始游戏")
+				room := createNewRoom()
+				for _, v := range gplayers2 {
+					if room != nil {
+						room.Player[v.Userid] = v
+					}
+				}
+			} else { //匹配失败
+				//把玩家放回匹配池
+				continueMatch = false
+				logs.Debug("玩家匹配失败，重新放回匹配池")
+				for _, v := range gplayers2 {
+					sfpool.WriteSafePool(v)
+				}
+			}
+
 		}
 	}
-	return ""
 }
 
 //创建新房间
-func createNewRoom() string {
+func createNewRoom() *Room {
 	var roomid string
 	for {
 		roomid = RandomString(8)
@@ -244,27 +282,8 @@ func createNewRoom() string {
 			break
 		}
 	}
-	return roomid
-}
-
-//玩家加入房间
-func enterRoom(player *Player, roomid string) error {
-	logs.Debug("玩家加入房间", roomid)
 	room := sfroom.ReadOneSafeRoom(roomid)
-	logs.Debug("房间信息", room)
-	if room != nil {
-		logs.Debug("房间存在奥")
-		if len(room.Player) <= roomSize {
-			room.Player[player.Userid] = player
-			if len(room.Player) >= roomSize {
-				logs.Debug("房间已经满了", "已经不可以再加入了", room.Player)
-				room.Status = 0
-			}
-			player.Roomid = roomid
-			return nil
-		}
-	}
-	return errors.New("该房间不可加入")
+	return room
 }
 
 //移除房间
@@ -282,7 +301,17 @@ func WSAdd(player *Player) {
 			player.Status = 0
 		}
 		player.Status = 1
-		cpool <- player
+		if player.Conn != nil && player.Status == 1 { //正常玩家
+			sfpool.WriteSafePool(player)
+		} else if player.Conn != nil && player.Status == 0 { //断线重连玩家
+			room := sfroom.ReadOneSafeRoom(player.Roomid)
+			if room != nil && room.Player[player.Userid] != nil {
+				room.Player[player.Userid].Status = 1
+				room.Player[player.Userid].Conn = player.Conn
+			} else { //房间已经解散，重新加入玩家池
+				sfpool.WriteSafePool(player)
+			}
+		}
 	}
 }
 
