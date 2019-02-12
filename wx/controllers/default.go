@@ -44,7 +44,6 @@ func (c *MainController) Get() {
 			_, p, err := ws.ReadMessage()
 			if err != nil {
 				log.Printf("页面可能断开啦 ws.ReadJSON error: %v", err)
-				utils.RemovePalyer(player.Roomid, userid)
 				break
 			} else {
 				fmt.Println("接受到从页面上反馈回来的信息 ", string(p))

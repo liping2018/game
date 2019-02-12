@@ -227,6 +227,7 @@ func matchPlayer() {
 			now := time.Now().Unix()
 			//按照等待时间扩大匹配范围
 			var waittime int64 = ((now - oldest.WaitTime) / 1000)
+
 			var min = (oldest.Rank - waittime)
 			if min < 0 {
 				min = 0
@@ -315,52 +316,10 @@ func WSAdd(player *Player) {
 	}
 }
 
-//移除玩家
-func RemovePalyer(roomid string, userid uint64) {
-
-	if roomid != "" { //房间移除
-		room := sfroom.ReadOneSafeRoom(roomid)
-		logs.Debug("这个房间有人退出", room, roomid)
-		// var ret int
-		if room != nil {
-			if room.Status == 1 { //游戏未开始，玩家退出或掉线
-				player := room.Player[userid]
-				if player != nil {
-					if player.Conn != nil {
-						player.Conn.Close()
-						logs.Debug("断开连接")
-					}
-					logs.Debug("这个人退出房间", userid)
-					delete(room.Player, userid)
-					//房主退出，移交房主权限
-					if player.IsAdmin == 1 {
-						logs.Debug("房主退出")
-						//房间为空
-						if len(room.Player) == 0 {
-							logs.Debug("房间已经空了，移除")
-							//移除房间
-							removeRoom(roomid)
-						} else {
-							for _, p := range room.Player {
-								p.IsAdmin = 1
-								logs.Debug("这个人成了房主", p.Userid)
-								break
-							}
-						}
-					}
-				}
-			} else if room.Status == 0 { //游戏已开始，玩家掉线或退出
-				player := room.Player[userid]
-				if player.Conn != nil {
-					player.Conn.Close()
-				}
-				player.Status = 0
-			}
-		}
-	} else {
-
-	}
-	logs.Debug(userid, "remove ")
+//玩家主动退出
+func removePalyer(userid uint64) {
+	logs.Debug("这个比退出了111111111111111111", userid)
+	sfpool.DelSafePool(userid)
 }
 
 //发送消息
@@ -406,7 +365,7 @@ func (w *WechatWS) StartGame(roomid string, ret *int) error {
 func (w *WechatWS) ExitGame(player Player, ret *int) error {
 	logs.Debug("有人退出", player.Roomid, player.Userid)
 	*ret = 1
-	RemovePalyer(player.Roomid, player.Userid)
+	removePalyer(player.Userid)
 	return nil
 }
 
